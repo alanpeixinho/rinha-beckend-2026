@@ -1,0 +1,9 @@
+.cache/
+build/
+test/
+run-tests.py
+run-tests.sh
+run-tests.xsh
+compile_commands.json
+.git/
+.gitignore
