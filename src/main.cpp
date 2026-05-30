@@ -1,9 +1,9 @@
-#include <cassert>
+#include "server.h"
+
 #include <cstddef>
 #include <cstdio>
-//#define CPPHTTPLIB_OPENSSL_SUPPORT
-#include <httplib.h>
-#include <string>
+#include <cstdlib>
+#include <cstring>
 
 struct FraudScoreRequest {
     char id[16];
@@ -18,11 +18,9 @@ struct FraudScoreRequest {
     float km_from_current;
 };
 
-//{"id":"tx-smoke-001","transaction":{"amount":384.88,"installments":3,"requested_at":"2026-03-11T20:23:35Z"},"customer":{"avg_amount":769.76,"tx_count_24h":3,"known_merchants":["MERC-009","MERC-001","MERC-001"]},"merchant":{"id":"MERC-001","mcc":"5912","avg_amount":298.95},"terminal":{"is_online":false,"card_present":true,"km_from_home":13.7090520965},"last_transaction":{"timestamp":"2026-03-11T14:58:35Z","km_from_current":18.8626479774}}
-
-struct FraudScoreRequest parse_fraud_score_request(const std::string& body) {
+struct FraudScoreRequest parse_fraud_score_request(const char* body) {
     struct FraudScoreRequest r = {};
-    sscanf(body.c_str(),
+    sscanf(body,
         "{\"id\":\"%63[^\"]\","
         "\"transaction\":{\"amount\":%f,\"installments\":%d,\"requested_at\":%*[^}]},"
         "\"customer\":{\"avg_amount\":%f,\"tx_count_24h\":%d,\"known_merchants\":%*[^]]]},"
@@ -39,33 +37,30 @@ struct FraudScoreRequest parse_fraud_score_request(const std::string& body) {
 
 size_t serialize_fraud_score_response(float score, char* response) {
     const char* bool_str[2] = {"false", "true"};
-    const size_t nbytes = sprintf(response, "{\"approved\": %s, \"fraud_score\": %4.2f}", bool_str[score > 0.6], score);
-    return nbytes;
+    return (size_t)sprintf(response, "{\"approved\": %s, \"fraud_score\": %4.2f}", bool_str[score > 0.6], score);
 }
 
-void fraud_score_endpoint(const httplib::Request& req, httplib::Response& res) {
-    const struct FraudScoreRequest r = parse_fraud_score_request(req.body);
-
-    char response[64];
-    const size_t nbytes = serialize_fraud_score_response(0.2, response);
-    assert(nbytes <= 64);
-    res.set_content(response, nbytes, "application/json");
+static int fraud_score_handler(const char* body, char* resp, int resp_sz) {
+    (void)resp_sz;
+    struct FraudScoreRequest r = parse_fraud_score_request(body);
+    (void)r;
+    return (int)serialize_fraud_score_response(0.2f, resp);
 }
 
-void ready_endpoint(const httplib::Request& req, httplib::Response& res) {
-    res.set_content("ok", "text/plain");
+static int ready_handler(const char* body, char* resp, int resp_sz) {
+    (void)body;
+    (void)resp_sz;
+    resp[0] = 'o';
+    resp[1] = 'k';
+    return 2;
 }
 
 int main() {
-    const int http_port = 9999;
-    printf("%ld\n", sizeof(FraudScoreRequest));
-    httplib::Server server;
-    server.set_keep_alive_max_count(1);
-    server.Post("/fraud-score", fraud_score_endpoint);
-    server.Get("/ready", ready_endpoint);
+    register_route("POST", "/fraud-score", fraud_score_handler);
+    register_route("GET", "/ready", ready_handler);
 
-    printf("Server listening on port %d\n", http_port);
-    server.listen("0.0.0.0", http_port);
+    const char* sock_path = getenv("UDS_PATH");
+    if (!sock_path) sock_path = "/sockets/api1.sock";
 
-    return 0;
+    return run_server(sock_path);
 }
