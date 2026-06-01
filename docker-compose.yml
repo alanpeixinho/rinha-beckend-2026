@@ -2,27 +2,26 @@ services:
   app1:
     build: .
     environment:
-      UDS_PATH: /sockets/api1.sock
+      PORT: "8081"
     volumes:
-      - sockets:/sockets
+      - ./resources/dataset.dat:/resources/dataset.dat:ro
     deploy:
       resources:
         limits:
-          cpus: "0.45"
-          memory: "150MB"
+          cpus: "0.4"
+          memory: "1128MB"
 
   app2:
     build: .
-    network_mode: "none"
     environment:
-      UDS_PATH: /sockets/api2.sock
+      PORT: "8082"
     volumes:
-      - sockets:/sockets
+      - ./resources/dataset.dat:/resources/dataset.dat:ro
     deploy:
       resources:
         limits:
-          cpus: "0.45"
-          memory: "150MB"
+          cpus: "0.4"
+          memory: "1128MB"
 
   lb:
     image: haproxy:3.1-alpine
@@ -31,20 +30,11 @@ services:
       - "9999:9999"
     volumes:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-      - sockets:/sockets
     depends_on:
       - app1
       - app2
     deploy:
       resources:
         limits:
-          cpus: "0.10"
-          memory: "50MB"
-
-volumes:
-  sockets:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=4m
+          cpus: "0.2"
+          memory: "16MB"

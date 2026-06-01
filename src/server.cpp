@@ -12,9 +12,10 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <netinet/in.h>
 #include <unistd.h>
 
-enum { BUF_SIZE = 32768, MAX_CONN = 16384, MAX_EV = 128, MAX_ROUTES = 32, MAX_RESP_CACHE = 2048 };
+enum { BUF_SIZE = 32768, MAX_CONN = 16384, MAX_EV = 128, MAX_ROUTES = 32 };
 
 struct Route {
     const char* method;
@@ -22,8 +23,6 @@ struct Route {
     const char* path;
     int path_len;
     route_handler_t handler;
-    char cached_resp[MAX_RESP_CACHE];
-    int cached_len;
 };
 
 static Route routes[MAX_ROUTES];
@@ -36,13 +35,14 @@ void register_route(const char* method, const char* path, route_handler_t handle
     routes[num_routes].path = path;
     routes[num_routes].path_len = (int)strlen(path);
     routes[num_routes].handler = handler;
-    routes[num_routes].cached_len = 0;
     num_routes++;
 }
 
 struct Conn {
     char buf[BUF_SIZE];
     int len;
+    char wbuf[BUF_SIZE];
+    int wlen;
 };
 
 static Conn g_cb[MAX_CONN] __attribute__((aligned(64)));
@@ -205,24 +205,13 @@ static int process_request(struct ReqInfo* info, char* resp, int resp_sz, bool* 
         if (memcmp(info->method, routes[i].method, info->method_len) != 0) continue;
         if (memcmp(info->path, routes[i].path, info->path_len) != 0) continue;
 
-        if (routes[i].cached_len > 0) {
-            if (resp_sz < routes[i].cached_len) return 0;
-            memcpy(resp, routes[i].cached_resp, routes[i].cached_len);
-            return routes[i].cached_len;
-        }
-
         char body_buf[4096];
         int body_len = routes[i].handler(info->body, body_buf, sizeof(body_buf));
         if (body_len <= 0) return 0;
 
         bool is_get = (info->method_len == 3 && memcmp(info->method, "GET", 3) == 0);
         const char* ct = is_get ? "text/plain" : "application/json";
-        int resp_len = build_response(resp, resp_sz, ct, is_get ? 10 : 16, body_buf, body_len);
-        if (resp_len > 0 && resp_len <= MAX_RESP_CACHE) {
-            routes[i].cached_len = resp_len;
-            memcpy(routes[i].cached_resp, resp, resp_len);
-        }
-        return resp_len;
+        return build_response(resp, resp_sz, ct, is_get ? 10 : 16, body_buf, body_len);
     }
 
     // Default: precomputed "ok" for unmatched routes
@@ -242,29 +231,18 @@ static int add_fd(int epfd, int fd, uint32_t events) {
     return epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
 }
 
-int run_server(const char* sock_path) {
-    unlink(sock_path);
+static int mod_fd(int epfd, int fd, uint32_t events) {
+    struct epoll_event ev = {.events = events, .data = {.fd = fd}};
+    return epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev);
+}
 
-    int sfd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (sfd < 0) { perror("socket"); return 1; }
-
-    struct sockaddr_un addr = {.sun_family = AF_UNIX};
-    strncpy(addr.sun_path, sock_path, sizeof(addr.sun_path) - 1);
-
-    if (bind(sfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind"); close(sfd); return 1;
-    }
-
-    chmod(sock_path, 0666);
-
-    if (listen(sfd, 4096) < 0) { perror("listen"); close(sfd); return 1; }
-
+static int run_server_loop(int sfd, const char* label) {
     int epfd = epoll_create1(0);
     if (epfd < 0) { perror("epoll_create1"); close(sfd); return 1; }
 
     add_fd(epfd, sfd, EPOLLIN | EPOLLET);
 
-    printf("listening on %s\n", sock_path);
+    printf("listening on %s\n", label);
 
     // Warm-up: prime instruction cache and branch predictor
     {
@@ -294,6 +272,7 @@ int run_server(const char* sock_path) {
                     if (c < 0) break;
                     if (c >= MAX_CONN) { close(c); continue; }
                     g_cb[c].len = 0;
+                    g_cb[c].wlen = 0;
                     add_fd(epfd, c, EPOLLIN | EPOLLET);
                 }
                 continue;
@@ -304,18 +283,35 @@ int run_server(const char* sock_path) {
             Conn* cb = &g_cb[fd];
             bool err = false;
 
-            // Read drain loop (EPOLLET: must read until EAGAIN)
-            while (true) {
-                int r = read(fd, cb->buf + cb->len, BUF_SIZE - cb->len - 1);
-                if (r < 0) { if (errno == EAGAIN) break; err = true; break; }
-                if (r == 0) { err = true; break; }
-                cb->len += r;
-                cb->buf[cb->len] = 0;
+            // Flush pending writes (EPOLLOUT)
+            if (cb->wlen > 0 && (ev & EPOLLOUT)) {
+                int w = write(fd, cb->wbuf, cb->wlen);
+                if (w < 0) {
+                    if (errno != EAGAIN) err = true;
+                } else if (w > 0) {
+                    cb->wlen -= w;
+                    if (cb->wlen > 0)
+                        memmove(cb->wbuf, cb->wbuf + w, cb->wlen);
+                }
+                if (err) { close(fd); continue; }
+                if (cb->wlen == 0)
+                    mod_fd(epfd, fd, EPOLLIN | EPOLLET);
             }
-            if (err) { close(fd); continue; }
 
-            // Process all complete requests in buffer (pipelining)
-            while (cb->len > 0) {
+            // Read new data (EPOLLIN) — always consume the edge
+            if (ev & EPOLLIN) {
+                while (true) {
+                    int r = read(fd, cb->buf + cb->len, BUF_SIZE - cb->len - 1);
+                    if (r < 0) { if (errno == EAGAIN) break; err = true; break; }
+                    if (r == 0) { err = true; break; }
+                    cb->len += r;
+                    cb->buf[cb->len] = 0;
+                }
+                if (err) { close(fd); continue; }
+            }
+
+            // Process requests only when no pending writes
+            while (cb->wlen == 0 && cb->len > 0) {
                 struct ReqInfo info;
                 int consumed = parse_request(cb->buf, cb->len, &info);
                 if (consumed <= 0) {
@@ -336,10 +332,23 @@ int run_server(const char* sock_path) {
                 int written = 0;
                 while (written < resp_len) {
                     int w = write(fd, resp + written, resp_len - written);
-                    if (w <= 0) { err = true; break; }
+                    if (w < 0) {
+                        if (errno == EAGAIN) {
+                            int remaining = resp_len - written;
+                            if (cb->wlen + remaining > BUF_SIZE) { err = true; break; }
+                            memcpy(cb->wbuf + cb->wlen, resp + written, remaining);
+                            cb->wlen += remaining;
+                            mod_fd(epfd, fd, EPOLLIN | EPOLLOUT | EPOLLET);
+                            break;
+                        }
+                        err = true;
+                        break;
+                    }
+                    if (w == 0) { err = true; break; }
                     written += w;
                 }
-                if (err || !keep_alive) break;
+
+                if (err || cb->wlen > 0 || !keep_alive) break;
             }
             if (err) close(fd);
         }
@@ -347,6 +356,50 @@ int run_server(const char* sock_path) {
 
     close(epfd);
     close(sfd);
-    unlink(sock_path);
+    if (label[0] == '/') unlink(label);
     return 0;
+}
+
+int run_server(const char* sock_path) {
+    unlink(sock_path);
+
+    int sfd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    if (sfd < 0) { perror("socket"); return 1; }
+
+    struct sockaddr_un addr = {.sun_family = AF_UNIX};
+    strncpy(addr.sun_path, sock_path, sizeof(addr.sun_path) - 1);
+
+    if (bind(sfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind"); close(sfd); return 1;
+    }
+
+    chmod(sock_path, 0666);
+
+    if (listen(sfd, 4096) < 0) { perror("listen"); close(sfd); return 1; }
+
+    return run_server_loop(sfd, sock_path);
+}
+
+int run_server_tcp(int port) {
+    int sfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    if (sfd < 0) { perror("socket"); return 1; }
+
+    int opt = 1;
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+    if (bind(sfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("bind"); close(sfd); return 1;
+    }
+    if (listen(sfd, 4096) < 0) { perror("listen"); close(sfd); return 1; }
+
+    char label[32];
+    snprintf(label, sizeof(label), "0.0.0.0:%d", port);
+
+    return run_server_loop(sfd, label);
 }
