@@ -1,7 +1,6 @@
 .cache/
 build/
 test/
-resources/
 run-tests.py
 run-tests.sh
 run-tests.xsh

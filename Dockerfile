@@ -15,9 +15,11 @@ FROM alpine:3.21
 RUN apk add --no-cache libgcc libstdc++
 
 COPY --from=builder /app/build/rinha-2026 /usr/local/bin/rinha-2026
-COPY --from=builder /app/build/proxy /usr/local/bin/proxy
+
+COPY resources/dataset_f16.dat /data/dataset.dat
+COPY resources/kdtree.dat /data/kdtree.dat
 
 RUN mkdir -p /sockets
 
 EXPOSE 9999
-CMD ["rinha-2026", "/resources/dataset.dat"]
+CMD ["rinha-2026", "/data/dataset.dat", "/data/kdtree.dat"]

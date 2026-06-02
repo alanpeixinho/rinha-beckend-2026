@@ -250,17 +250,18 @@ void request_to_vector(FraudScoreRequest r, float* feats) {
 
 size_t serialize_fraud_score_response(float score, char* response) {
     const char* bool_str[2] = {"false", "true"};
-    return (size_t)sprintf(response, "{\"approved\": %s, \"fraud_score\": %2.1f}", bool_str[score > 0.6], score);
+    return (size_t)sprintf(response, "{\"approved\": %s, \"fraud_score\": %2.1f}", bool_str[score <= 0.6f], score);
 }
 
 static Dataset dataset;
+static KDTree kdtree;
 
 static int fraud_score_handler(const char* body, char* resp, int resp_sz) {
     const int max_feats = 14;
     float query[max_feats];
     struct FraudScoreRequest r = parse_fraud_score_request(body);
     request_to_vector(r, query);
-    const float score = knn_bf_score(dataset, query, 5);
+    const float score = knn_kdtree_score(dataset, kdtree, query, 5);
     return (int)serialize_fraud_score_response(score, resp);
 }
 
@@ -271,6 +272,7 @@ static int ready_handler(const char* body, char* resp, int resp_sz) {
 
 int main(int argc, const char** argv) {
     dataset = load_dataset(argv[1]);
+    kdtree = load_kdtree(argv[2]);
 
     register_route("POST", "/fraud-score", fraud_score_handler);
     register_route("GET", "/ready", ready_handler);
@@ -281,6 +283,7 @@ int main(int argc, const char** argv) {
     run_server(sock_path);
 
     destroy_dataset(dataset);
+    destroy_kdtree(kdtree);
 
     return 0;
 }
