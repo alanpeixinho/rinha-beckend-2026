@@ -1,4 +1,10 @@
+build-*
 build/
 .cache/
 compile_commands.json
 test/results.json
+test/results-mine.json
+python/wrong.json
+resources/test-data.json
+*.core
+/tmp/

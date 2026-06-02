@@ -29,12 +29,8 @@ def main():
     data, idx_array, node_data, node_bounds = clf._tree.get_arrays()
 
     #reorder data to use kdtree indices
-    print(samples.mean(), samples.std())
     samples = samples[idx_array, :]
     labels = labels[idx_array]
-    print(samples.mean(), samples.std())
-
-    import pdb; pdb.set_trace()
 
     with open(dst, 'wb') as f:
         dims = struct.pack('<ii', *samples.shape)
@@ -43,12 +39,14 @@ def main():
         f.write(labels.tobytes())
 
     with open(tree, 'wb') as f:
-        for i in range(len(node_data)):
-            idx_start, idx_end, is_leaf, radius = node_data[i]
+        nnodes = len(node_data)
+        nfeats = node_bounds.shape[2]
+        f.write(struct.pack('<ii', nnodes, nfeats))
+        for i in range(nnodes):
+            idx_start, idx_end, is_leaf, _ = node_data[i]
             f.write(struct.pack('<i', idx_start))
             f.write(struct.pack('<i', idx_end))
             f.write(struct.pack('<?', is_leaf))
-            f.write(struct.pack('<f', radius))
 
         f.write(node_bounds.astype('float32').tobytes())
 

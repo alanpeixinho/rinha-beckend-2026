@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "server.h"
+#include "profiler.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -194,6 +195,7 @@ static bool wants_close(const char* buf, const char* hdr_end) {
 }
 
 static int process_request(struct ReqInfo* info, char* resp, int resp_sz, bool* keep_alive) {
+    ScopedTimer _t("process_request");
     if (keep_alive) {
         const char* hdr_end = info->body - 4;
         *keep_alive = !wants_close(info->method, hdr_end);

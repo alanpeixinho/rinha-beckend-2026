@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include "knn.h"
+#include "profiler.h"
 
 using namespace std;
 
@@ -159,6 +160,7 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
 }
 
 float knn_kdtree_score(Dataset dataset, KDTree tree, float* query, int k) {
+    ScopedTimer _t("knn_kdtree_score");
     SampleDist neighbors[k];
     fill(neighbors, neighbors + k, SampleDist {
             .i = -1,

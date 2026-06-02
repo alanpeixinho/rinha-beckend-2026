@@ -1,4 +1,5 @@
 #include "knn.h"
+#include "profiler.h"
 #include "server.h"
 #include <simdjson.h>
 
@@ -36,6 +37,7 @@ struct FraudScoreRequest {
 using namespace simdjson;
 
 struct FraudScoreRequest parse_fraud_score_request(const char* body) {
+    ScopedTimer _t("parse_fraud_score_request");
     struct FraudScoreRequest r = {};
     size_t len = strlen(body);
 
@@ -188,6 +190,7 @@ static long long epoch_seconds(int y, int m, int d, int h, int mi, int s) {
 }
 
 void request_to_vector(FraudScoreRequest r, float* feats) {
+    ScopedTimer _t("request_to_vector");
     const float max_amount = 10000;
     const float max_installments = 12;
     const float amount_vs_avg_ratio = 10;
@@ -241,7 +244,6 @@ void request_to_vector(FraudScoreRequest r, float* feats) {
     feats[12] = mcc;
     feats[13] = clamp(r.merchant_avg_amount / max_merchant_avg_amount, 0.0f, 1.0f);
 
-    // Quantize all features to match training data (short/10000)
     for (int i = 0; i < 14; i++) {
         feats[i] = roundf(feats[i] * 10000.0f) / 10000.0f;
     }
@@ -249,14 +251,16 @@ void request_to_vector(FraudScoreRequest r, float* feats) {
 
 
 size_t serialize_fraud_score_response(float score, char* response) {
+    ScopedTimer _t("serialize_fraud_score_response");
     const char* bool_str[2] = {"false", "true"};
-    return (size_t)sprintf(response, "{\"approved\": %s, \"fraud_score\": %2.1f}", bool_str[score <= 0.6f], score);
+    return (size_t)sprintf(response, "{\"approved\": %s, \"fraud_score\": %2.1f}", bool_str[score < 0.6f], score);
 }
 
 static Dataset dataset;
 static KDTree kdtree;
 
 static int fraud_score_handler(const char* body, char* resp, int resp_sz) {
+    ScopedTimer _t("fraud_score_handler");
     const int max_feats = 14;
     float query[max_feats];
     struct FraudScoreRequest r = parse_fraud_score_request(body);

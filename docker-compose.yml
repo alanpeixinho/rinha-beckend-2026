@@ -5,12 +5,11 @@ services:
       UDS_PATH: /sockets/app1.sock
     volumes:
       - backend-sockets:/sockets
-      - ./resources/dataset.dat:/resources/dataset.dat:ro
     deploy:
       resources:
         limits:
           cpus: "0.4"
-          memory: "1128MB"
+          memory: "160MB"
 
   app2:
     build: .
@@ -18,12 +17,11 @@ services:
       UDS_PATH: /sockets/app2.sock
     volumes:
       - backend-sockets:/sockets
-      - ./resources/dataset.dat:/resources/dataset.dat:ro
     deploy:
       resources:
         limits:
           cpus: "0.4"
-          memory: "1128MB"
+          memory: "160MB"
 
   lb:
     image: haproxy:3.1-alpine
