@@ -2,8 +2,9 @@ services:
   app1:
     build: .
     environment:
-      PORT: "8081"
+      UDS_PATH: /sockets/app1.sock
     volumes:
+      - backend-sockets:/sockets
       - ./resources/dataset.dat:/resources/dataset.dat:ro
     deploy:
       resources:
@@ -14,8 +15,9 @@ services:
   app2:
     build: .
     environment:
-      PORT: "8082"
+      UDS_PATH: /sockets/app2.sock
     volumes:
+      - backend-sockets:/sockets
       - ./resources/dataset.dat:/resources/dataset.dat:ro
     deploy:
       resources:
@@ -29,6 +31,7 @@ services:
     ports:
       - "9999:9999"
     volumes:
+      - backend-sockets:/sockets
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
       - app1
@@ -38,3 +41,11 @@ services:
         limits:
           cpus: "0.2"
           memory: "16MB"
+
+volumes:
+  backend-sockets:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=4m,mode=0777

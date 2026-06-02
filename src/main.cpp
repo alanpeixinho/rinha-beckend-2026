@@ -1,20 +1,24 @@
 #include "knn.h"
 #include "server.h"
+#include <simdjson.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unordered_map>
 
 using namespace std;
+
+constexpr int MAX_KNOWN_MERCHANTS = 8;
 
 struct FraudScoreRequest {
     char id[16];
     char merchant_id[12];
     char mcc[8];
-    char known_merchants[1024];
+    char known_merchants[MAX_KNOWN_MERCHANTS][16];
+    int known_merchants_count;
     float amount;
     int installments;
     char requested_at[32];
@@ -29,44 +33,89 @@ struct FraudScoreRequest {
     float km_from_current;
 };
 
+using namespace simdjson;
+
 struct FraudScoreRequest parse_fraud_score_request(const char* body) {
     struct FraudScoreRequest r = {};
-    r.has_last_tx = strstr(body, "\"last_transaction\": null") == NULL
-                 && strstr(body, "\"last_transaction\":null") == NULL;
+    size_t len = strlen(body);
 
-    char is_online_str[6] = {0};
-    char card_present_str[6] = {0};
+    dom::parser parser;
+    dom::element doc;
+    if (parser.parse(body, len).get(doc) != SUCCESS) return r;
 
-    if (r.has_last_tx) {
-        sscanf(body,
-            "{\"id\": \"%63[^\"]\","
-            "\"transaction\": {\"amount\": %f, \"installments\": %d, \"requested_at\": \"%31[^\"]\"},"
-            "\"customer\": {\"avg_amount\": %f, \"tx_count_24h\": %d, \"known_merchants\": %1023[^]]]},"
-            "\"merchant\": {\"id\": \"%15[^\"]\", \"mcc\": \"%7[^\"]\", \"avg_amount\": %f},"
-            "\"terminal\": {\"is_online\": %5[a-z], \"card_present\": %5[a-z], \"km_from_home\": %f},"
-            "\"last_transaction\": {\"timestamp\": \"%31[^\"]\", \"km_from_current\": %f}}",
-            r.id, &r.amount, &r.installments, r.requested_at,
-            &r.cust_avg_amount, &r.tx_count_24h, r.known_merchants,
-            r.merchant_id, r.mcc, &r.merchant_avg_amount,
-            is_online_str, card_present_str, &r.km_from_home,
-            r.last_tx_timestamp, &r.km_from_current
-        );
-    } else {
-        sscanf(body,
-            "{\"id\": \"%63[^\"]\","
-            "\"transaction\": {\"amount\": %f, \"installments\": %d, \"requested_at\": \"%31[^\"]\"},"
-            "\"customer\": {\"avg_amount\": %f, \"tx_count_24h\": %d, \"known_merchants\": %1023[^]]]},"
-            "\"merchant\": {\"id\": \"%15[^\"]\", \"mcc\": \"%7[^\"]\", \"avg_amount\": %f},"
-            "\"terminal\": {\"is_online\": %5[a-z], \"card_present\": %5[a-z], \"km_from_home\": %f}}",
-            r.id, &r.amount, &r.installments, r.requested_at,
-            &r.cust_avg_amount, &r.tx_count_24h, r.known_merchants,
-            r.merchant_id, r.mcc, &r.merchant_avg_amount,
-            is_online_str, card_present_str, &r.km_from_home
-        );
+    auto get_str = [](simdjson_result<dom::element> el, char* dst, int sz) {
+        dom::element e;
+        if (el.get(e) == SUCCESS) {
+            const char* s;
+            if (e.get_c_str().get(s) == SUCCESS) {
+                size_t n = strlen(s);
+                if (n >= (size_t)sz) n = sz - 1;
+                memcpy(dst, s, n);
+                dst[n] = '\0';
+            }
+        }
+    };
+
+    get_str(doc["id"], r.id, sizeof(r.id));
+
+    dom::element tx_el;
+    if (doc["transaction"].get(tx_el) == SUCCESS) {
+        double d;
+        if (tx_el["amount"].get_double().get(d) == SUCCESS) r.amount = (float)d;
+        int64_t i;
+        if (tx_el["installments"].get_int64().get(i) == SUCCESS) r.installments = (int)i;
+        get_str(tx_el["requested_at"], r.requested_at, sizeof(r.requested_at));
     }
 
-    r.is_online = strcmp(is_online_str, "true") == 0 ? 1 : 0;
-    r.card_present = strcmp(card_present_str, "true") == 0 ? 1 : 0;
+    dom::element cust_el;
+    if (doc["customer"].get(cust_el) == SUCCESS) {
+        double d;
+        if (cust_el["avg_amount"].get_double().get(d) == SUCCESS) r.cust_avg_amount = (float)d;
+        int64_t i;
+        if (cust_el["tx_count_24h"].get_int64().get(i) == SUCCESS) r.tx_count_24h = (int)i;
+
+        dom::array km_arr;
+        if (cust_el["known_merchants"].get_array().get(km_arr) == SUCCESS) {
+            int idx = 0;
+            for (dom::element el : km_arr) {
+                if (idx >= MAX_KNOWN_MERCHANTS) break;
+                const char* s;
+                if (el.get_c_str().get(s) == SUCCESS) {
+                    size_t n = strlen(s);
+                    if (n >= 16) n = 15;
+                    memcpy(r.known_merchants[idx], s, n);
+                    r.known_merchants[idx][n] = '\0';
+                    idx++;
+                }
+            }
+            r.known_merchants_count = idx;
+        }
+    }
+
+    dom::element merch_el;
+    if (doc["merchant"].get(merch_el) == SUCCESS) {
+        get_str(merch_el["id"], r.merchant_id, sizeof(r.merchant_id));
+        get_str(merch_el["mcc"], r.mcc, sizeof(r.mcc));
+        double d;
+        if (merch_el["avg_amount"].get_double().get(d) == SUCCESS) r.merchant_avg_amount = (float)d;
+    }
+
+    dom::element term_el;
+    if (doc["terminal"].get(term_el) == SUCCESS) {
+        bool b;
+        if (term_el["is_online"].get_bool().get(b) == SUCCESS) r.is_online = b ? 1 : 0;
+        if (term_el["card_present"].get_bool().get(b) == SUCCESS) r.card_present = b ? 1 : 0;
+        double d;
+        if (term_el["km_from_home"].get_double().get(d) == SUCCESS) r.km_from_home = (float)d;
+    }
+
+    dom::element last_tx_el;
+    if (doc["last_transaction"].get(last_tx_el) == SUCCESS && !last_tx_el.is_null()) {
+        r.has_last_tx = 1;
+        get_str(last_tx_el["timestamp"], r.last_tx_timestamp, sizeof(r.last_tx_timestamp));
+        double d;
+        if (last_tx_el["km_from_current"].get_double().get(d) == SUCCESS) r.km_from_current = (float)d;
+    }
 
     return r;
 }
@@ -84,24 +133,21 @@ float mcc_map(const char* mcc) {
             return 0.80;
         if (strcmp(mcc, "7802") == 0)
             return 0.75;
-        if (strcmp(mcc, "7955") == 0)
+        if (strcmp(mcc, "7995") == 0)
             return 0.85;
         if (strcmp(mcc, "4511") == 0)
             return 0.35;
         if (strcmp(mcc, "5311") == 0)
             return 0.25;
+        if (strcmp(mcc, "5999") == 0)
+            return 0.50;
         return 0.50;
 }
 
-bool is_known_merchant(const char* merchant_id, const char* known_merchants) {
-    if (known_merchants[0] == '\0') return false;
-    char buf[1024];
-    strcpy(buf, known_merchants);
-    char* p = strtok(buf + 1, "\",");
-    while (p != nullptr) {
-        if (strcmp(merchant_id, p) == 0)
+bool is_known_merchant(const char* merchant_id, const char (*known_merchants)[16], int count) {
+    for (int i = 0; i < count; ++i) {
+        if (strcmp(merchant_id, known_merchants[i]) == 0)
             return true;
-        p = strtok(nullptr, "\",");
     }
     return false;
 }
@@ -126,7 +172,8 @@ static bool parse_iso8601(const char* ts, int& y, int& m, int& d, int& h, int& m
 static int day_of_week(int y, int m, int d) {
     static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
     y -= m < 3;
-    return (y + y/4 - y/100 + y/400 + t[m-1] + d) % 7;
+    int dow = (y + y/4 - y/100 + y/400 + t[m-1] + d) % 7;
+    return (dow + 6) % 7;  // shift to Mon=0 .. Sun=6
 }
 
 static long long epoch_seconds(int y, int m, int d, int h, int mi, int s) {
@@ -187,12 +234,17 @@ void request_to_vector(FraudScoreRequest r, float* feats) {
     feats[9] = float(r.is_online);
     feats[10] = float(r.card_present);
 
-    bool known = is_known_merchant(r.merchant_id, r.known_merchants);
+    bool known = is_known_merchant(r.merchant_id, r.known_merchants, r.known_merchants_count);
     feats[11] = known ? 0.0f : 1.0f;
 
     float mcc = mcc_map(r.mcc);
     feats[12] = mcc;
     feats[13] = clamp(r.merchant_avg_amount / max_merchant_avg_amount, 0.0f, 1.0f);
+
+    // Quantize all features to match training data (short/10000)
+    for (int i = 0; i < 14; i++) {
+        feats[i] = roundf(feats[i] * 10000.0f) / 10000.0f;
+    }
 }
 
 
@@ -208,7 +260,7 @@ static int fraud_score_handler(const char* body, char* resp, int resp_sz) {
     float query[max_feats];
     struct FraudScoreRequest r = parse_fraud_score_request(body);
     request_to_vector(r, query);
-    const float score = 0.2f;
+    const float score = knn_bf_score(dataset, query, 5);
     return (int)serialize_fraud_score_response(score, resp);
 }
 
@@ -219,19 +271,14 @@ static int ready_handler(const char* body, char* resp, int resp_sz) {
 
 int main(int argc, const char** argv) {
     dataset = load_dataset(argv[1]);
-    printf("%d %d\n", dataset.nsamples, dataset.nfeats);
-    for (int i = 0; i < dataset.nfeats; ++i) {
-        printf("%f ", dataset.samples[i]);
-    }
-    printf("\n");
 
     register_route("POST", "/fraud-score", fraud_score_handler);
     register_route("GET", "/ready", ready_handler);
 
-    const char* port_str = getenv("PORT");
-    int port = port_str ? atoi(port_str) : 8081;
+    const char* sock_path = getenv("UDS_PATH");
+    if (!sock_path) sock_path = "/sockets/api1.sock";
 
-    run_server_tcp(port);
+    run_server(sock_path);
 
     destroy_dataset(dataset);
 
