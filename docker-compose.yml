@@ -1,0 +1,52 @@
+services:
+  app1:
+    image: alanpeixinho/rinha-2026:latest
+    environment:
+      UDS_PATH: /sockets/app1.sock
+    volumes:
+      - backend-sockets:/sockets
+    deploy:
+      resources:
+        limits:
+          cpus: "0.4"
+          memory: "150MB"
+    network_mode: bridge
+
+  app2:
+    image: alanpeixinho/rinha-2026:latest
+    environment:
+      UDS_PATH: /sockets/app2.sock
+    volumes:
+      - backend-sockets:/sockets
+    deploy:
+      resources:
+        limits:
+          cpus: "0.4"
+          memory: "150MB"
+    network_mode: bridge
+
+  lb:
+    image: haproxy:3.1-alpine
+    entrypoint: ["haproxy", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+    ports:
+      - "9999:9999"
+    volumes:
+      - backend-sockets:/sockets
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - app1
+      - app2
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: "50MB"
+    network_mode: bridge
+
+volumes:
+  backend-sockets:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=4m,mode=0777
