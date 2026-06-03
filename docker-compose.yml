@@ -9,7 +9,7 @@ services:
       resources:
         limits:
           cpus: "0.4"
-          memory: "160MB"
+          memory: "150MB"
 
   app2:
     build: .
@@ -21,7 +21,7 @@ services:
       resources:
         limits:
           cpus: "0.4"
-          memory: "160MB"
+          memory: "150MB"
 
   lb:
     image: haproxy:3.1-alpine

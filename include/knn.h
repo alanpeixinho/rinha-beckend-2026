@@ -1,9 +1,21 @@
 #pragma once
 
 #include <stdfloat>
+#include <cstdint>
+#include <type_traits>
 
-using dataset_dtype = std::float16_t;
+using dataset_dtype = std::int16_t;
 using bounds_dtype  = std::float32_t;
+
+inline float to_float(dataset_dtype val) {
+    if constexpr (std::is_same_v<dataset_dtype, std::int16_t>) {
+        //float16_t can cause precision errors
+        //this way we have 4 decimal places, which seems to be enough
+        return float(val) * 0.0001f;
+    } else {
+        return float(val);
+    }
+}
 
 struct Dataset {
     int nsamples, nfeats;

@@ -382,26 +382,3 @@ int run_server(const char* sock_path) {
     return run_server_loop(sfd, sock_path);
 }
 
-int run_server_tcp(int port) {
-    int sfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (sfd < 0) { perror("socket"); return 1; }
-
-    int opt = 1;
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port);
-    if (bind(sfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind"); close(sfd); return 1;
-    }
-    if (listen(sfd, 4096) < 0) { perror("listen"); close(sfd); return 1; }
-
-    char label[32];
-    snprintf(label, sizeof(label), "0.0.0.0:%d", port);
-
-    return run_server_loop(sfd, label);
-}

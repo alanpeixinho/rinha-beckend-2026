@@ -11,10 +11,10 @@ void destroy_dataset(Dataset dataset) {
     delete [] dataset.labels;
 }
 
-static inline float squared_l2_dist(const float* x1, const dataset_dtype* x2, int n) {
+inline float squared_l2_dist(const float* x1, const dataset_dtype* x2, int n) {
     float sum = 0.0f;
     for (int i = 0; i < n; ++i) {
-        const float d = float(x1[i]) - float(x2[i]);
+        const float d = float(x1[i]) - to_float(x2[i]);
         sum += d * d;
     }
     return sum;
@@ -67,11 +67,12 @@ float knn_bf_score(const Dataset dataset, const float* query, int k) {
 }
 
 KDTree load_kdtree(const char* filepath) {
-
     int nnodes, nfeats;
     KDTreeNode* nodes;
     bounds_dtype* bounds;
     FILE* f = fopen(filepath, "rb");
+    if (!f) return {};
+
     fread(&nnodes, sizeof(int), 1, f);
     fread(&nfeats, sizeof(int), 1, f);
 
@@ -96,7 +97,7 @@ void destroy_kdtree(KDTree tree) {
     delete [] tree.lower_bounds;
 }
 
-float min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
+inline float min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
         const bounds_dtype* upper, int nfeats) {
     float sum = 0.0f;
     for (int i = 0; i < nfeats; ++i) {

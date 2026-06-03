@@ -56,6 +56,10 @@ def main():
 
     stem = dst.rpartition('.')[0]
     write_dataset(f'{stem}_f16.dat', samples, labels, 'float16')
+
+    i16 = np.round(samples * 10000).astype(np.int16)
+    write_dataset(f'{stem}_i16.dat', i16, labels, 'int16')
+
     stem = tree.rpartition('.')[0]
     write_tree(f'{stem}_f16.dat', node_data, node_bounds, 'float16')
 

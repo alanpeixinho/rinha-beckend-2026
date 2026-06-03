@@ -283,7 +283,6 @@ int main(int argc, const char** argv) {
 
     const char* sock_path = getenv("UDS_PATH");
     if (!sock_path) sock_path = "/sockets/api1.sock";
-
     run_server(sock_path);
 
     destroy_dataset(dataset);

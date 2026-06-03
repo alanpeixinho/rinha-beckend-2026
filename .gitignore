@@ -8,3 +8,5 @@ python/wrong.json
 resources/test-data.json
 *.core
 /tmp/
+resources/dataset*.dat
+resources/kdtree*.dat
