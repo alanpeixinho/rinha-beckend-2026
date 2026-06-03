@@ -41,7 +41,7 @@ struct FraudScoreRequest parse_fraud_score_request(const char* body) {
     struct FraudScoreRequest r = {};
     size_t len = strlen(body);
 
-    dom::parser parser;
+    static dom::parser parser;
     dom::element doc;
     if (parser.parse(body, len).get(doc) != SUCCESS) return r;
 

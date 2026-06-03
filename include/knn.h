@@ -3,7 +3,7 @@
 #include <stdfloat>
 
 using dataset_dtype = std::float16_t;
-using bounds_dtype = std::float32_t;
+using bounds_dtype  = std::float32_t;
 
 struct Dataset {
     int nsamples, nfeats;
@@ -13,7 +13,7 @@ struct Dataset {
 
 struct SampleDist {
     int i;
-    double dist;
+    float dist;
     const bool operator<(const SampleDist& sd) {
         return dist < sd.dist;
     }
@@ -24,6 +24,8 @@ struct __attribute__((packed)) KDTreeNode {
     int end;
     bool is_leaf;
 };
+
+constexpr int K_NEIGHBORS = 5;
 
 struct KDTree {
     int nnodes, nfeats;

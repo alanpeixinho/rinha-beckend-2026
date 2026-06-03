@@ -22,7 +22,7 @@ include_directories(include/)
 file(GLOB SRC_FILES src/*.cpp)
 
 add_executable(rinha-2026 ${SRC_FILES})
-target_compile_options(rinha-2026 PRIVATE -O3 -DNDEBUG -funroll-loops -flto -mf16c -mavx)
+target_compile_options(rinha-2026 PRIVATE -O3 -DNDEBUG -funroll-loops -flto -mf16c -mavx -ffast-math -fno-exceptions)
 target_link_options(rinha-2026 PRIVATE -flto)
 target_link_libraries(rinha-2026 PRIVATE simdjson::simdjson)
 

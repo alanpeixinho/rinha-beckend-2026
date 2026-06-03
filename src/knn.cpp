@@ -11,13 +11,11 @@ void destroy_dataset(Dataset dataset) {
     delete [] dataset.labels;
 }
 
-static inline double squared_l2_dist(const float* x1, const dataset_dtype* x2, int n) {
-    double sum = 0.0f;
-
-    #pragma GCC unroll 14
+static inline float squared_l2_dist(const float* x1, const dataset_dtype* x2, int n) {
+    float sum = 0.0f;
     for (int i = 0; i < n; ++i) {
-        const float diff = float(x1[i]) - float(x2[i]);
-        sum += diff * diff;
+        const float d = float(x1[i]) - float(x2[i]);
+        sum += d * d;
     }
     return sum;
 }
@@ -51,7 +49,7 @@ float knn_bf_score(const Dataset dataset, const float* query, int k) {
     make_heap(neighbors, neighbors + k);
 
     for (int i = 0; i < nsamples; ++i) {
-        const double dist = squared_l2_dist(query, &(dataset.samples[i * nfeats]), nfeats);
+        const float dist = squared_l2_dist(query, &(dataset.samples[i * nfeats]), nfeats);
         if (dist < neighbors[0].dist) {
             pop_heap(neighbors, neighbors + k);
             neighbors[k - 1] = SampleDist{.i = i, .dist = dist};
@@ -61,11 +59,11 @@ float knn_bf_score(const Dataset dataset, const float* query, int k) {
 
     sort_heap(neighbors, neighbors + k);
 
-    double score = 0.0;
+    float score = 0.0f;
     for (int i = 0; i < k; ++i) {
         score += dataset.labels[neighbors[i].i];
     }
-    return (float)(score / k);
+    return score / k;
 }
 
 KDTree load_kdtree(const char* filepath) {
@@ -98,17 +96,15 @@ void destroy_kdtree(KDTree tree) {
     delete [] tree.lower_bounds;
 }
 
-double min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
+float min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
         const bounds_dtype* upper, int nfeats) {
-    double sum = 0.0;
+    float sum = 0.0f;
     for (int i = 0; i < nfeats; ++i) {
-        if (query[i] < lower[i]) {
-            const double diff = lower[i] - query[i];
-            sum += diff * diff;
-        } else if (query[i] > upper[i]) {
-            const double diff = query[i] - upper[i];
-            sum += diff * diff;
-        }
+        const float diff0 = float(lower[i]) - float(query[i]);
+        const float diff1 = float(query[i]) - float(upper[i]);
+        float d = diff0 > diff1 ? diff0 : diff1;
+        if (d < 0.0f) d = 0.0f;
+        sum += d * d;
     }
     return sum;
 }
@@ -118,7 +114,7 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
 
     const int nfeats = dataset.nfeats;
     if (heap[0].dist != INFINITY) {
-        const double max_dist = heap[0].dist;
+        const float max_dist = heap[0].dist;
         if (min_dist_to_box_sq(query, &tree.lower_bounds[node_idx * nfeats], &tree.upper_bounds[node_idx * nfeats],
                     nfeats) >= max_dist) {
             return;
@@ -129,7 +125,7 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
     if (node.is_leaf) {
         for (int i = node.start; i < node.end; ++i) {
             const dataset_dtype* point = &dataset.samples[i * nfeats];
-            const double dist = squared_l2_dist(query, point, nfeats);
+            const float dist = squared_l2_dist(query, point, nfeats);
             if (dist < heap[0].dist) {
                 pop_heap(heap, heap + k);
                 heap[k-1] = SampleDist {
@@ -145,9 +141,9 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
     const int left_child = 2 * node_idx + 1;
     const int right_child = 2 * node_idx + 2;
 
-    const double left_box_dist = min_dist_to_box_sq(query,
+    const float left_box_dist = min_dist_to_box_sq(query,
             &tree.lower_bounds[left_child * nfeats], &tree.upper_bounds[left_child * nfeats], nfeats);
-    const double right_box_dist = min_dist_to_box_sq(query,
+    const float right_box_dist = min_dist_to_box_sq(query,
             &tree.lower_bounds[right_child * nfeats], &tree.upper_bounds[right_child * nfeats], nfeats);
 
     if (left_box_dist < right_box_dist) {
@@ -161,16 +157,16 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
 
 float knn_kdtree_score(Dataset dataset, KDTree tree, float* query, int k) {
     ScopedTimer _t("knn_kdtree_score");
-    SampleDist neighbors[k];
+    SampleDist neighbors[K_NEIGHBORS];
     fill(neighbors, neighbors + k, SampleDist {
             .i = -1,
             .dist = INFINITY
         });
     knn_kdtree_rec(dataset, tree, 0, query, neighbors, k);
 
-    double score = 0.0;
+    float score = 0.0f;
     for (int i = 0; i < k; ++i) {
         score += dataset.labels[neighbors[i].i];
     }
-    return (float)(score / k);
+    return score / k;
 }
