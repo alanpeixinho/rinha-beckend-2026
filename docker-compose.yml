@@ -9,7 +9,7 @@ services:
       resources:
         limits:
           cpus: "0.4"
-          memory: "150MB"
+          memory: "160MB"
     network_mode: bridge
 
   app2:
@@ -22,7 +22,7 @@ services:
       resources:
         limits:
           cpus: "0.4"
-          memory: "150MB"
+          memory: "160MB"
     network_mode: bridge
 
   lb:
@@ -40,7 +40,7 @@ services:
       resources:
         limits:
           cpus: "0.2"
-          memory: "50MB"
+          memory: "16MB"
     network_mode: bridge
 
 volumes:
