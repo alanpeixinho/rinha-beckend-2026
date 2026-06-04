@@ -1,6 +1,6 @@
 services:
   app1:
-    image: alanpeixinho/rinha-2026:5f3bd85b54e3
+    image: alanpeixinho/rinha-2026:5c7b610e82de
     environment:
       UDS_PATH: /sockets/app1.sock
     volumes:
@@ -8,12 +8,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.475"
+          cpus: "0.45"
           memory: "160MB"
     network_mode: bridge
 
   app2:
-    image: alanpeixinho/rinha-2026:5f3bd85b54e3
+    image: alanpeixinho/rinha-2026:5c7b610e82de
     environment:
       UDS_PATH: /sockets/app2.sock
     volumes:
@@ -21,7 +21,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.475"
+          cpus: "0.45"
           memory: "160MB"
     network_mode: bridge
 
@@ -39,7 +39,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.05"
+          cpus: "0.1"
           memory: "16MB"
     network_mode: bridge
 
