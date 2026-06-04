@@ -44,7 +44,7 @@ def main():
     samples = numpy.array(samples, dtype='float32')
     labels = numpy.array(labels)
 
-    clf = KNeighborsClassifier(5, algorithm='kd_tree', leaf_size=15).fit(samples, labels)
+    clf = KNeighborsClassifier(5, algorithm='kd_tree', leaf_size=10).fit(samples, labels)
     data, idx_array, node_data, node_bounds = clf._tree.get_arrays()
 
     #reorder data to use kdtree indices
@@ -55,13 +55,13 @@ def main():
     write_tree(tree, node_data, node_bounds, 'float32')
 
     stem = dst.rpartition('.')[0]
-    write_dataset(f'{stem}_f16.dat', samples, labels, 'float16')
-
-    i16 = np.round(samples * 10000).astype(np.int16)
+    i16 = numpy.round(samples * 10000).astype(numpy.int16)
     write_dataset(f'{stem}_i16.dat', i16, labels, 'int16')
 
-    stem = tree.rpartition('.')[0]
-    write_tree(f'{stem}_f16.dat', node_data, node_bounds, 'float16')
+
+    stem = dst.rpartition('.')[0]
+    i16 = numpy.round(node_bounds * 10000).astype(numpy.int16)
+    write_tree(tree, node_data, node_bounds, 'int16')
 
 if __name__ == '__main__':
     main()

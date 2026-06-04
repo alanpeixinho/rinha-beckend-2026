@@ -101,8 +101,8 @@ inline float min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
         const bounds_dtype* upper, int nfeats) {
     float sum = 0.0f;
     for (int i = 0; i < nfeats; ++i) {
-        const float diff0 = float(lower[i]) - float(query[i]);
-        const float diff1 = float(query[i]) - float(upper[i]);
+        const float diff0 = to_float(lower[i]) - float(query[i]);
+        const float diff1 = to_float(query[i]) - float(upper[i]);
         float d = diff0 > diff1 ? diff0 : diff1;
         if (d < 0.0f) d = 0.0f;
         sum += d * d;

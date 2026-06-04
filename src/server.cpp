@@ -16,7 +16,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-enum { BUF_SIZE = 32768, MAX_CONN = 16384, MAX_EV = 128, MAX_ROUTES = 32 };
+enum { BUF_SIZE = 4096, MAX_CONN = 1024, MAX_EV = 128, MAX_ROUTES = 32 };
 
 struct Route {
     const char* method;
