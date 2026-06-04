@@ -11,10 +11,10 @@ void destroy_dataset(Dataset dataset) {
     delete [] dataset.labels;
 }
 
-inline float squared_l2_dist(const float* x1, const dataset_dtype* x2, int n) {
+inline float squared_l2_dist(const float* __restrict__ x1, const dataset_dtype* __restrict__ x2, int n) {
     float sum = 0.0f;
     for (int i = 0; i < n; ++i) {
-        const float d = float(x1[i]) - to_float(x2[i]);
+        const float d = to_float(x1[i]) - to_float(x2[i]);
         sum += d * d;
     }
     return sum;
@@ -97,12 +97,12 @@ void destroy_kdtree(KDTree tree) {
     delete [] tree.lower_bounds;
 }
 
-inline float min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
-        const bounds_dtype* upper, int nfeats) {
+inline float min_dist_to_box_sq(const float* __restrict__ query, const bounds_dtype* __restrict__ lower,
+        const bounds_dtype* __restrict__ upper, int nfeats) {
     float sum = 0.0f;
     for (int i = 0; i < nfeats; ++i) {
-        const float diff0 = to_float(lower[i]) - float(query[i]);
-        const float diff1 = to_float(query[i]) - float(upper[i]);
+        const float diff0 = to_float(lower[i]) - query[i];
+        const float diff1 = query[i] - to_float(upper[i]);
         float d = diff0 > diff1 ? diff0 : diff1;
         if (d < 0.0f) d = 0.0f;
         sum += d * d;
@@ -111,7 +111,8 @@ inline float min_dist_to_box_sq(const float* query, const bounds_dtype* lower,
 }
 
 void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
-                const float* query, SampleDist* heap, int k) {
+                const float* query,
+                SampleDist* heap, int k) {
 
     const int nfeats = dataset.nfeats;
     if (heap[0].dist != INFINITY) {

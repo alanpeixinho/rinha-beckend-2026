@@ -17,7 +17,7 @@ RUN apk add --no-cache libgcc libstdc++
 COPY --from=builder /app/build/rinha-2026 /usr/local/bin/rinha-2026
 
 COPY resources/dataset_i16.dat /data/dataset.dat
-COPY resources/kdtree_f32.dat /data/kdtree.dat
+COPY resources/kdtree_i16.dat /data/kdtree.dat
 
 RUN mkdir -p /sockets
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#define DEBUG_PROFILING 0
 #ifdef DEBUG_PROFILING
 
 #include <cstdio>

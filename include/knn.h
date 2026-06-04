@@ -6,7 +6,7 @@
 #include <type_traits>
 
 using dataset_dtype = std::int16_t;
-using bounds_dtype  = std::float32_t;
+using bounds_dtype  = std::int16_t;
 
 template <typename dtype>
 inline float to_float(dtype val) {

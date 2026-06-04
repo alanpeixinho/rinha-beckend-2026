@@ -313,6 +313,7 @@ static int run_server_loop(int sfd, const char* label) {
             }
 
             // Process requests only when no pending writes
+            bool close_conn = false;
             while (cb->wlen == 0 && cb->len > 0) {
                 struct ReqInfo info;
                 int consumed = parse_request(cb->buf, cb->len, &info);
@@ -350,9 +351,95 @@ static int run_server_loop(int sfd, const char* label) {
                     written += w;
                 }
 
-                if (err || cb->wlen > 0 || !keep_alive) break;
+                if (err) break;
+                if (cb->wlen > 0) break;
+                if (!keep_alive) { close_conn = true; break; }
             }
-            if (err) close(fd);
+            if (err || close_conn) close(fd);
+        }
+
+        // Busy-spin: catch arrivals during processing without blocking
+        int busy_cnt = 0;
+        while (busy_cnt < 3) {
+            int m = epoll_wait(epfd, events, MAX_EV, 0);
+            if (m <= 0) break;
+            busy_cnt++;
+            for (int i = 0; i < m && busy_cnt < 3; i++) {
+                int fd = events[i].data.fd;
+                uint32_t ev = events[i].events;
+                if (ev & (EPOLLHUP | EPOLLERR)) { close(fd); continue; }
+                if (fd == sfd) {
+                    while (true) {
+                        int c = accept4(sfd, nullptr, nullptr, SOCK_NONBLOCK);
+                        if (c < 0) break;
+                        if (c >= MAX_CONN) { close(c); continue; }
+                        g_cb[c].len = 0;
+                        g_cb[c].wlen = 0;
+                        add_fd(epfd, c, EPOLLIN | EPOLLET);
+                    }
+                    continue;
+                }
+                if (fd < 0 || fd >= MAX_CONN) { close(fd); continue; }
+                Conn* cb = &g_cb[fd];
+                bool err = false;
+                if (cb->wlen > 0 && (ev & EPOLLOUT)) {
+                    int w = write(fd, cb->wbuf, cb->wlen);
+                    if (w < 0) { if (errno != EAGAIN) err = true; }
+                    else if (w > 0) {
+                        cb->wlen -= w;
+                        if (cb->wlen > 0) memmove(cb->wbuf, cb->wbuf + w, cb->wlen);
+                    }
+                    if (err) { close(fd); continue; }
+                    if (cb->wlen == 0) mod_fd(epfd, fd, EPOLLIN | EPOLLET);
+                }
+                if ((ev & EPOLLIN) && !err) {
+                    while (true) {
+                        int r = read(fd, cb->buf + cb->len, BUF_SIZE - cb->len - 1);
+                        if (r < 0) { if (errno == EAGAIN) break; err = true; break; }
+                        if (r == 0) { err = true; break; }
+                        cb->len += r;
+                        cb->buf[cb->len] = 0;
+                    }
+                    if (err) { close(fd); continue; }
+                }
+                bool close_conn = false;
+                while (cb->wlen == 0 && cb->len > 0) {
+                    struct ReqInfo info;
+                    int consumed = parse_request(cb->buf, cb->len, &info);
+                    if (consumed <= 0) {
+                        if (cb->len >= BUF_SIZE - 1) err = true;
+                        break;
+                    }
+                    bool keep_alive = true;
+                    char resp[BUF_SIZE];
+                    int resp_len = process_request(&info, resp, BUF_SIZE, &keep_alive);
+                    if (resp_len <= 0) { err = true; break; }
+                    int rem = cb->len - consumed;
+                    if (rem > 0) memmove(cb->buf, cb->buf + consumed, rem);
+                    cb->len = rem;
+                    int written = 0;
+                    while (written < resp_len) {
+                        int w = write(fd, resp + written, resp_len - written);
+                        if (w < 0) {
+                            if (errno == EAGAIN) {
+                                int remaining = resp_len - written;
+                                if (cb->wlen + remaining > BUF_SIZE) { err = true; break; }
+                                memcpy(cb->wbuf + cb->wlen, resp + written, remaining);
+                                cb->wlen += remaining;
+                                mod_fd(epfd, fd, EPOLLIN | EPOLLOUT | EPOLLET);
+                                break;
+                            }
+                            err = true; break;
+                        }
+                        if (w == 0) { err = true; break; }
+                        written += w;
+                    }
+                    if (err) break;
+                    if (cb->wlen > 0) break;
+                    if (!keep_alive) { close_conn = true; break; }
+                }
+                if (err || close_conn) close(fd);
+            }
         }
     }
 
