@@ -16,8 +16,9 @@ def write_dataset(path, samples, labels, dtype):
         f.write(labels.tobytes())
 
 def write_tree(path, node_data, node_bounds, dtype):
+    # node_bounds: [nnodes, 2, nfeats] with layout [l0..ln, u0..un]
     with open(path, 'wb') as f:
-        nnodes = len(node_data)
+        nnodes = node_data.shape[0]
         nfeats = node_bounds.shape[2]
         f.write(struct.pack('<ii', nnodes, nfeats))
         for i in range(nnodes):
@@ -60,10 +61,11 @@ def main():
     labels = labels[idx_array]
 
     write_dataset(dst, samples, labels, 'float32')
-    write_tree(tree, node_data, node_bounds, 'float32')
+    # sklearn returns bounds as [2, nnodes, nfeats] — transpose to [nnodes, 2, nfeats]
+    write_tree(tree, node_data, node_bounds.transpose(1, 0, 2), 'float32')
 
     stem = dst.rpartition('.')[0]
-    i16 = numpy.round(samples * 10000).astype(numpy.int16)
+    i16 = numpy.clip(numpy.round(samples * 20000), -32768, 32767).astype(numpy.int16)
     write_dataset(f'{stem}_i16.dat', i16, labels, 'int16')
 
 
@@ -81,10 +83,11 @@ def main():
             upper_i16[i] = chunk.max(axis=0)
 
     # expand bounds by 1 int16 unit to account for quantization error at boundaries
-    lower_i16 = numpy.clip(lower_i16 - 1, -32768, 32767).astype(numpy.int16)
-    upper_i16 = numpy.clip(upper_i16 + 1, -32768, 32767).astype(numpy.int16)
+    # cast to int32 to avoid int16 overflow (e.g., 32767 + 1 = -32768 in int16)
+    lower_i16 = numpy.clip(lower_i16.astype(numpy.int32) - 1, -32768, 32767).astype(numpy.int16)
+    upper_i16 = numpy.clip(upper_i16.astype(numpy.int32) + 1, -32768, 32767).astype(numpy.int16)
 
-    i16_bounds = numpy.stack([lower_i16, upper_i16])
+    i16_bounds = numpy.stack([lower_i16, upper_i16], axis=1)  # [nnodes, 2, nfeats]
     write_tree(f'{stem}_i16.dat', node_data, i16_bounds, 'int16')
 
 if __name__ == '__main__':

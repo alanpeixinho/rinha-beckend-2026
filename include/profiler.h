@@ -1,7 +1,9 @@
 #pragma once
 
+#ifndef DEBUG_PROFILING
 #define DEBUG_PROFILING 0
-#ifdef DEBUG_PROFILING
+#endif
+#if DEBUG_PROFILING
 
 #include <cstdio>
 #include <chrono>

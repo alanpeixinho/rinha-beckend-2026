@@ -245,10 +245,9 @@ void request_to_vector(FraudScoreRequest r, float* feats) {
     feats[13] = clamp(r.merchant_avg_amount / max_merchant_avg_amount, 0.0f, 1.0f);
 
     for (int i = 0; i < 14; i++) {
-        feats[i] = roundf(feats[i] * 10000.0f) / 10000.0f;
+        feats[i] = roundf(feats[i] * 20000.0f) / 20000.0f;
     }
 }
-
 
 size_t serialize_fraud_score_response(float score, char* response) {
     ScopedTimer _t("serialize_fraud_score_response");

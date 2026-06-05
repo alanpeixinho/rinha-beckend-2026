@@ -87,22 +87,21 @@ KDTree load_kdtree(const char* filepath) {
         .nnodes = nnodes,
         .nfeats = nfeats,
         .nodes = nodes,
-        .lower_bounds = &bounds[0],
-        .upper_bounds = &bounds[nnodes * nfeats]
+        .bounds = bounds
     };
 }
 
 void destroy_kdtree(KDTree tree) {
     delete [] tree.nodes;
-    delete [] tree.lower_bounds;
+    delete [] tree.bounds;
 }
 
-inline float min_dist_to_box_sq(const float* __restrict__ query, const bounds_dtype* __restrict__ lower,
-        const bounds_dtype* __restrict__ upper, int nfeats) {
+// bounds per node: [l0..l(nfeats-1), u0..u(nfeats-1)] — two contiguous blocks
+inline float min_dist_to_box_sq(const float* __restrict__ query, const bounds_dtype* __restrict__ bounds, int nfeats) {
     float sum = 0.0f;
     for (int i = 0; i < nfeats; ++i) {
-        const float diff0 = to_float(lower[i]) - query[i];
-        const float diff1 = query[i] - to_float(upper[i]);
+        const float diff0 = to_float(bounds[i]) - query[i];
+        const float diff1 = query[i] - to_float(bounds[nfeats + i]);
         float d = diff0 > diff1 ? diff0 : diff1;
         if (d < 0.0f) d = 0.0f;
         sum += d * d;
@@ -117,7 +116,7 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
     const int nfeats = dataset.nfeats;
     if (heap[0].dist != INFINITY) {
         const float max_dist = heap[0].dist;
-        if (min_dist_to_box_sq(query, &tree.lower_bounds[node_idx * nfeats], &tree.upper_bounds[node_idx * nfeats],
+        if (min_dist_to_box_sq(query, &tree.bounds[node_idx * 2 * nfeats],
                     nfeats) >= max_dist) {
             return;
         }
@@ -143,10 +142,11 @@ void knn_kdtree_rec(Dataset dataset, KDTree tree, int node_idx,
     const int left_child = 2 * node_idx + 1;
     const int right_child = 2 * node_idx + 2;
 
+    const int node_stride = 2 * nfeats;
     const float left_box_dist = min_dist_to_box_sq(query,
-            &tree.lower_bounds[left_child * nfeats], &tree.upper_bounds[left_child * nfeats], nfeats);
+            &tree.bounds[left_child * node_stride], nfeats);
     const float right_box_dist = min_dist_to_box_sq(query,
-            &tree.lower_bounds[right_child * nfeats], &tree.upper_bounds[right_child * nfeats], nfeats);
+            &tree.bounds[right_child * node_stride], nfeats);
 
     if (left_box_dist < right_box_dist) {
         knn_kdtree_rec(dataset, tree, left_child, query, heap, k);

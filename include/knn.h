@@ -1,6 +1,5 @@
 #pragma once
 
-#include <concepts>
 #include <stdfloat>
 #include <cstdint>
 #include <type_traits>
@@ -12,8 +11,8 @@ template <typename dtype>
 inline float to_float(dtype val) {
     if constexpr (std::is_same_v<dtype, std::int16_t>) {
         //float16_t can cause precision errors
-        //this way we have 4 decimal places, which seems to be enough
-        return float(val) * 0.0001f;
+        //this way we have more than decimal places, which seems to be enough
+        return float(val) * 0.00005f;
     } else {
         return float(val);
     }
@@ -41,11 +40,12 @@ struct __attribute__((packed)) KDTreeNode {
 
 constexpr int K_NEIGHBORS = 5;
 
+// bounds per node: [l0..l(nfeats-1), u0..u(nfeats-1)] — two contiguous float blocks
+// total stride per node = nfeats * 2
 struct KDTree {
     int nnodes, nfeats;
     KDTreeNode* nodes = nullptr;
-    bounds_dtype* lower_bounds = nullptr;
-    bounds_dtype* upper_bounds = nullptr;
+    bounds_dtype* bounds = nullptr;
 };
 
 Dataset load_dataset(const char* filepath);
