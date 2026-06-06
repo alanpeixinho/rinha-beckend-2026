@@ -1,6 +1,6 @@
 services:
   app1:
-    image: alanpeixinho/rinha-2026:da4d530de89c
+    image: alanpeixinho/rinha-2026:76f8d503d331
     environment:
       UDS_PATH: /sockets/app1.sock
     volumes:
@@ -13,7 +13,7 @@ services:
     network_mode: bridge
 
   app2:
-    image: alanpeixinho/rinha-2026:da4d530de89c
+    image: alanpeixinho/rinha-2026:76f8d503d331
     environment:
       UDS_PATH: /sockets/app2.sock
     volumes:
